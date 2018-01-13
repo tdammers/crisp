@@ -24,3 +24,21 @@ data ArgsSpec
       , remainingArgsName :: Text
       }
       deriving (Show, Read, Eq)
+
+valToString :: Value -> String
+valToString Nil = "()"
+valToString (Cons a Nil) = "(" ++ valToString a ++ printConsTail Nil
+valToString (Cons a (Cons b c)) = "(" ++ valToString a ++ printConsTail (Cons b c)
+valToString (Cons a b) = valToString a ++ " . " ++ valToString b
+valToString (Bool True) = "true"
+valToString (Bool False) = "false"
+valToString (String t) = show t
+valToString (Bytes b) = show b
+valToString (Int i) = show i
+valToString (Atom a) = Text.unpack a
+valToString (Lambda args body) = "<<function>>"
+
+printConsTail :: Value -> String
+printConsTail Nil = ")"
+printConsTail (Cons a b) = " " ++ valToString a ++ printConsTail b
+printConsTail x = " . " ++ valToString x ++ ")"
