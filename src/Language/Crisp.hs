@@ -1,6 +1,7 @@
 module Language.Crisp
 ( module Language.Crisp.Value
 , lexer
+, Lexeme
 , parser
 , eval
 , pureEval

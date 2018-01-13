@@ -12,6 +12,9 @@ import Data.Text (Text)
 import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
 import Data.Char
+import Data.Void
+import Data.List
+import qualified Data.List.NonEmpty as NonEmpty
 
 data Lexeme
   = OpenParL
@@ -22,10 +25,13 @@ data Lexeme
   | SymbolL Text
   deriving (Show, Read, Eq, Ord)
 
-lexer :: String -> Either (ParseError Char ()) [Lexeme]
+instance ShowToken Lexeme where
+  showTokens = intercalate " " . map show . NonEmpty.toList
+
+lexer :: String -> Either (ParseError Char Void) [Lexeme]
 lexer = parse lexemes "<input>"
 
-type Parser = Parsec () String
+type Parser = Parsec Void String
 
 lexemes :: Parser [Lexeme]
 lexemes = many (lexeme <* many skippable)

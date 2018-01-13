@@ -21,11 +21,12 @@ import Data.List
 import Data.Monoid hiding ((<>))
 import Data.Semigroup
 import qualified Data.List.NonEmpty as NonEmpty
+import Data.Void
 
 import Language.Crisp.Value
 import Language.Crisp.Lexer
 
-parser :: [Lexeme] -> Either (ParseError Lexeme ()) Value
+parser :: [Lexeme] -> Either (ParseError Lexeme Void) Value
 parser = parse value "<input>"
 
 instance Stream [Lexeme] where
@@ -46,7 +47,7 @@ instance Stream [Lexeme] where
     | otherwise = Just (splitAt n s)
   takeWhile_ = span
 
-type Parser = Parsec () [Lexeme]
+type Parser = Parsec Void [Lexeme]
 
 value :: Parser Value
 value = dottedPairOrSimple

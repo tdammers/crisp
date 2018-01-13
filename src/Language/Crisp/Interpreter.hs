@@ -79,6 +79,8 @@ pureBuiltins =
   [ ("+", sumValues)
   , ("list", listValues)
   , ("eval", evalValues)
+  , ("cons", consValues)
+  , ("str", strValues)
   ]
 
 runPureEval :: PureEval a -> Map Text Value -> (Either Text a, Map Text Value)
@@ -97,8 +99,22 @@ sumValues = fmap Int . intSumValues
     intSumValues (Cons (Int i) xs) = (i +) <$> intSumValues xs
     intSumValues x = raise $ "Cannot perform addition on " <> valToText x
 
-listValues :: (Monad m, MonadEval m) => Value -> m Value
+listValues :: (Monad m) => Value -> m Value
 listValues = pure
 
 evalValues :: (Monad m, MonadEval m) => Value -> m Value
 evalValues args = consMapM eval args
+
+consValues :: (Monad m, MonadEval m) => Value -> m Value
+consValues (Cons a (Cons b Nil)) = pure $ Cons a b
+consValues x = raise $ "Invalid arguments to cons: " <> valToText x
+
+strValues :: (Monad m) => Value -> m Value
+strValues = pure . String . strValue
+
+strValue :: Value -> Text
+strValue Nil = ""
+strValue (Cons a b) = strValue a <> strValue b
+strValue (String str) = str
+strValue (Int i) = Text.pack . show $ i
+strValue x = valToText $ x
