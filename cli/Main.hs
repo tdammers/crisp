@@ -16,7 +16,7 @@ main = forever $ do
     lexemes <- either (error . show) return $ lexer input
     parsed <- either (error . show) return $ parser lexemes
     result <- either (error . show) return $ pureEval_ parsed []
-    print parsed
+    putStrLn $ valToString result
   where
     handle :: SomeException -> IO ()
     handle = hPutStrLn stderr . show

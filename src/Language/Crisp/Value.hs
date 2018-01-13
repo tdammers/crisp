@@ -18,6 +18,14 @@ data Value
   | Lambda ArgsSpec Value -- ^ lambda function: Lambda args body
   deriving (Show, Read, Eq)
 
+consMap :: (Value -> Value) -> Value -> Value
+consMap f (Cons a b) = Cons (f a) (consMap f b)
+consMap f x = f x
+
+consMapM :: Monad m => (Value -> m Value) -> Value -> m Value
+consMapM f (Cons a b) = Cons <$> f a <*> consMapM f b
+consMapM f x = f x
+
 data ArgsSpec
   = ArgsSpec
       { positionalArgNames :: [Text]
@@ -37,6 +45,9 @@ valToString (Bytes b) = show b
 valToString (Int i) = show i
 valToString (Atom a) = Text.unpack a
 valToString (Lambda args body) = "<<function>>"
+
+valToText :: Value -> Text
+valToText = Text.pack . valToString
 
 printConsTail :: Value -> String
 printConsTail Nil = ")"
