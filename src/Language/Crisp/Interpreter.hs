@@ -32,6 +32,11 @@ eval = eval'
 --   return val'
 
 eval' :: (Monad m, MonadEval m) => Value -> m Value
+-- Special form: (quote x)
+eval' (Cons (Atom "quote") (Cons arg Nil)) =
+  pure arg
+eval' (Cons (Atom "quote") xs) =
+  raise $ "Invalid arguments to (quote): " <> valToText xs
 -- Special form: (let (name expr) ... body)
 eval' (Cons (Atom "let") args) =
   evalLet args
