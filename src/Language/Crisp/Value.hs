@@ -38,7 +38,7 @@ consForM = flip consMapM
 data ArgsSpec
   = ArgsSpec
       { positionalArgNames :: [Text]
-      , remainingArgsName :: Text
+      , remainingArgsName :: Maybe Text
       }
       deriving (Show, Read, Eq)
 

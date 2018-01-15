@@ -2,6 +2,7 @@
 {-#LANGUAGE OverloadedLists #-}
 {-#LANGUAGE DeriveFunctor #-}
 {-#LANGUAGE GeneralizedNewtypeDeriving #-}
+{-#LANGUAGE ScopedTypeVariables #-}
 module Language.Crisp.Interpreter
 where
 
@@ -18,13 +19,27 @@ import Control.Monad.Except
 import Control.Monad.Identity
 import Data.Maybe
 import Control.Applicative
+import Debug.Trace
 
 import Language.Crisp.Value
 
 eval :: (Monad m, MonadEval m) => Value -> m Value
-eval (Cons (Atom "let") args) =
+eval = eval'
+-- eval val =
+--   traceM $ "<- " <> valToString val
+--   val' <- eval' val
+--   traceM $ valToString val <> " -> " <> valToString val'
+--   return val'
+
+eval' :: (Monad m, MonadEval m) => Value -> m Value
+-- Special form: (let (name expr) ... body)
+eval' (Cons (Atom "let") args) =
   evalLet args
-eval (Cons x args) = do
+-- Special form: (lambda (argname0 argname1 ...) body)
+eval' (Cons (Atom "lambda") args) =
+  evalLambda args
+-- S-expressions evaluate to function calls
+eval' (Cons x args) = do
   f <- eval x
   argVals <- consMapM eval args
   case f of
@@ -42,8 +57,10 @@ eval (Cons x args) = do
           builtin argVals
     x ->
       raise $ "Not a function: " <> valToText x
-eval (Atom a) = fromMaybe (Atom a) <$> getVar a
-eval x = pure x
+-- Atoms evaluate as variable lookups
+eval' (Atom a) = fromMaybe (Atom a) <$> getVar a
+-- Anything else evaluates to itself
+eval' x = pure x
 
 evalLet :: (Monad m, MonadEval m) => Value -> m Value
 evalLet Nil =
@@ -58,15 +75,49 @@ evalLet (Cons binding remainder) =
     x ->
       raise $ "Malformed let bindingL " <> valToText x
 
+evalLambda :: (Monad m, MonadEval m) => Value -> m Value
+evalLambda (Cons argnames (Cons bodyExpr Nil)) = do
+  Lambda <$> extractArgsSpec argnames
+         <*> getBindings
+         <*> pure bodyExpr
+
+extractArgsSpec :: (Monad m, MonadEval m) => Value -> m ArgsSpec
+extractArgsSpec Nil =
+  pure $ ArgsSpec [] Nothing
+extractArgsSpec (Cons (Atom "&") (Atom n)) =
+  pure $ ArgsSpec [] (Just n)
+extractArgsSpec (Cons (Atom "&") x) =
+  raise $ "Invalid argument specification in lambda form: " <> valToText x <> " (exactly one atom required after &)"
+extractArgsSpec (Cons (Atom n) xs) = do
+  spec <- extractArgsSpec xs
+  pure spec { positionalArgNames = n : positionalArgNames spec }
+extractArgsSpec x =
+  raise $ "Invalid argument specification in lambda form: " <> valToText x
+
 evalArgs :: (Monad m, MonadEval m) => Value -> m [Value]
 evalArgs Nil = pure []
 evalArgs (Cons x xs) = (:) <$> eval x <*> evalArgs xs
 evalArgs x =
   raise $ "Not a well-formed argument list: " <> valToText x
 
-apply :: (Monad m, MonadEval m) => ArgsSpec -> Value -> Scope -> Value -> m Value
-apply argsSpec args closure body =
-  raise $ "Cannot evaluate functions yet"
+apply :: forall m. (Monad m, MonadEval m) => ArgsSpec -> Value -> Scope -> Value -> m Value
+apply (ArgsSpec positional remaining) args closure body =
+  withBindings closure . bindArgs positional remaining args $ eval body
+  where
+    bindArgs :: [Text] -> Maybe Text -> Value -> m Value -> m Value
+    bindArgs [] Nothing Nil action =
+      -- Nothing left to bind, run the action as-is
+      action
+    bindArgs [] Nothing x action =
+      raise $ "Excessive arguments passed to function: " <> valToText x
+    bindArgs [] (Just name) x action =
+      addBinding name x action
+    bindArgs (n:ns) r (Cons v vs) action =
+      addBinding n v $ bindArgs ns r vs action
+    bindArgs (n:ns) r Nil action =
+      raise $ "Missing argument: " <> n
+    bindArgs _ _ x action =
+      raise $ "Invalid argument structure in function call: " <> valToText x
 
 class MonadEval m where
   setDynVar :: Text -> Value -> m ()
