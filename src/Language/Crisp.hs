@@ -4,8 +4,8 @@ module Language.Crisp
 , Lexeme
 , parser
 , eval
-, pureEval
-, pureEval_
+, evaluate
+, evaluate_
 )
 where
 

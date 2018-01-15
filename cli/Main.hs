@@ -39,7 +39,7 @@ main = do
     when (not . null $ input) $ flip catches handles $ do
       lexemes <- either (throw . LexerError) return $ lexer input
       parsed <- either (throw . ParserError) return $ parser lexemes
-      result <- either (throw . RuntimeError) return $ pureEval_ parsed []
+      result <- either (throw . RuntimeError) return $ evaluate_ parsed []
       putStrLn $ valToString result
     main
   where

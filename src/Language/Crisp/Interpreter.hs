@@ -15,17 +15,21 @@ import Data.Semigroup
 import Control.Monad.State
 import Control.Monad.Reader
 import Control.Monad.Except
+import Control.Monad.Identity
 import Data.Maybe
+import Control.Applicative
 
 import Language.Crisp.Value
 
 eval :: (Monad m, MonadEval m) => Value -> m Value
+eval (Cons (Atom "let") args) =
+  evalLet args
 eval (Cons x args) = do
   f <- eval x
   argVals <- consMapM eval args
   case f of
-    Lambda argsSpec body ->
-      apply argsSpec argVals body
+    Lambda argsSpec closure body ->
+      apply argsSpec argVals closure body
     Atom a -> do
       -- This is a special case: the 'Value' type cannot represent builtins,
       -- this keeps things considerably simpler, and avoids having to make
@@ -41,41 +45,75 @@ eval (Cons x args) = do
 eval (Atom a) = fromMaybe (Atom a) <$> getVar a
 eval x = pure x
 
+evalLet :: (Monad m, MonadEval m) => Value -> m Value
+evalLet Nil =
+  pure Nil
+evalLet (Cons expr Nil) =
+  eval expr
+evalLet (Cons binding remainder) =
+  case binding of
+    Cons (Atom name) (Cons valExpr Nil) -> do
+      val <- eval valExpr
+      addBinding name val $ evalLet remainder
+    x ->
+      raise $ "Malformed let bindingL " <> valToText x
+
 evalArgs :: (Monad m, MonadEval m) => Value -> m [Value]
 evalArgs Nil = pure []
 evalArgs (Cons x xs) = (:) <$> eval x <*> evalArgs xs
 evalArgs x =
   raise $ "Not a well-formed argument list: " <> valToText x
 
-apply :: (Monad m, MonadEval m) => ArgsSpec -> Value -> Value -> m Value
-apply argsSpec args body =
+apply :: (Monad m, MonadEval m) => ArgsSpec -> Value -> Scope -> Value -> m Value
+apply argsSpec args closure body =
   raise $ "Cannot evaluate functions yet"
 
 class MonadEval m where
-  setVar :: Text -> Value -> m ()
-  getVar :: Text -> m (Maybe Value)
+  setDynVar :: Text -> Value -> m ()
+  getDynVar :: Text -> m (Maybe Value)
+  withBindings :: Scope -> m a -> m a
+  getBindings :: m Scope
   getBuiltin :: Text -> m (Maybe (Value -> m Value))
   raise :: Text -> m a
 
-newtype PureEval a =
-  PureEval { unPureEval :: ExceptT Text (ReaderT (Map Text (Value -> PureEval Value)) (State (Map Text Value))) a }
+getBinding :: (Monad m, MonadEval m) => Text -> m (Maybe Value)
+getBinding n = Map.lookup n <$> getBindings
+
+addBindings :: (Monad m, MonadEval m) => Scope -> m a -> m a
+addBindings additionalBindings a = do
+  oldBindings <- getBindings
+  let newBindings = Map.union additionalBindings oldBindings
+  withBindings newBindings a
+
+addBinding :: (Monad m, MonadEval m) => Text -> Value -> m a -> m a
+addBinding n v = addBindings $ Map.singleton n v
+
+getVar :: (Monad m, MonadEval m) => Text -> m (Maybe Value)
+getVar n = do
+  getBinding n >>= maybe (getDynVar n) (pure . Just)
+
+newtype EvalT m a =
+  EvalT { unEvalT :: ExceptT Text (ReaderT Scope (StateT Scope m)) a }
   deriving
     ( Functor
     , Applicative
     , Monad
-    , MonadState (Map Text Value)
+    , MonadState Scope
     , MonadError Text
-    , MonadReader (Map Text (Value -> PureEval Value))
+    , MonadReader Scope
+    , MonadIO
     )
 
-instance MonadEval PureEval where
-  setVar n v = modify $ Map.insert n v
-  getVar n = Map.lookup n <$> get
-  getBuiltin n = Map.lookup n <$> ask
+instance Monad m => MonadEval (EvalT m) where
+  setDynVar n v = modify $ Map.insert n v
+  getDynVar n = Map.lookup n <$> get
+  getBuiltin n = pure . Map.lookup n $ builtinFunctions
+  getBindings = ask
+  withBindings = local . const
   raise msg = throwError msg
 
-pureBuiltins :: (MonadEval m, Monad m) => Map Text (Value -> m Value)
-pureBuiltins =
+builtinFunctions :: (MonadEval m, Monad m) => Map Text (Value -> m Value)
+builtinFunctions =
   [ ("+", sumValues)
   , ("list", listValues)
   , ("eval", evalValues)
@@ -83,14 +121,14 @@ pureBuiltins =
   , ("str", strValues)
   ]
 
-runPureEval :: PureEval a -> Map Text Value -> (Either Text a, Map Text Value)
-runPureEval = runState . flip runReaderT pureBuiltins . runExceptT . unPureEval
+runEvalT :: EvalT m a -> Map Text Value -> m (Either Text a, Map Text Value)
+runEvalT = runStateT . flip runReaderT [] . runExceptT . unEvalT
 
-pureEval :: Value -> Map Text Value -> (Either Text Value, Map Text Value)
-pureEval value context = runPureEval (eval value) context
+evaluate :: Value -> Map Text Value -> (Either Text Value, Map Text Value)
+evaluate value context = runIdentity $ runEvalT (eval value) context
 
-pureEval_ :: Value -> Map Text Value -> Either Text Value
-pureEval_ value context = fst $ pureEval value context
+evaluate_ :: Value -> Map Text Value -> Either Text Value
+evaluate_ value context = fst $ evaluate value context
 
 sumValues :: (Monad m, MonadEval m) => Value -> m Value
 sumValues = fmap Int . intSumValues

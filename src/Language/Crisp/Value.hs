@@ -5,6 +5,9 @@ import qualified Data.Text (Text)
 import Data.Text as Text
 import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
+import Data.Map (Map)
+
+type Scope = Map Text Value
 
 -- | Values we can represent
 data Value
@@ -15,16 +18,22 @@ data Value
   | String Text -- ^ unicode string
   | Bytes ByteString -- ^ byte array
   | Atom Text -- ^ a symbol; typically used to dereference variables
-  | Lambda ArgsSpec Value -- ^ lambda function: Lambda args body
+  | Lambda ArgsSpec Scope Value -- ^ lambda function: Lambda args closure body
   deriving (Show, Read, Eq)
 
 consMap :: (Value -> Value) -> Value -> Value
 consMap f (Cons a b) = Cons (f a) (consMap f b)
 consMap f x = f x
 
+consFor :: Value -> (Value -> Value) -> Value
+consFor = flip consMap
+
 consMapM :: Monad m => (Value -> m Value) -> Value -> m Value
 consMapM f (Cons a b) = Cons <$> f a <*> consMapM f b
 consMapM f x = f x
+
+consForM :: Monad m => Value -> (Value -> m Value) -> m Value
+consForM = flip consMapM
 
 data ArgsSpec
   = ArgsSpec
@@ -44,7 +53,7 @@ valToString (String t) = show t
 valToString (Bytes b) = show b
 valToString (Int i) = show i
 valToString (Atom a) = Text.unpack a
-valToString (Lambda args body) = "<<function>>"
+valToString (Lambda args closure body) = "<<function>>"
 
 valToText :: Value -> Text
 valToText = Text.pack . valToString
