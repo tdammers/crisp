@@ -35,6 +35,22 @@ consMapM f x = f x
 consForM :: Monad m => Value -> (Value -> m Value) -> m Value
 consForM = flip consMapM
 
+isTruthy :: Value -> Bool
+isTruthy Nil = False
+isTruthy (Bool False) = False
+isTruthy _ = True
+
+isFalsy :: Value -> Bool
+isFalsy = not . isTruthy
+
+isNil :: Value -> Bool
+isNil Nil = True
+isNil _ = False
+
+isCons :: Value -> Bool
+isCons (Cons _ _) = True
+isCons _ = False
+
 data ArgsSpec
   = ArgsSpec
       { positionalArgNames :: [Text]

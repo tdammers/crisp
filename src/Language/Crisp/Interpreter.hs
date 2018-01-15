@@ -43,6 +43,19 @@ eval' (Cons (Atom "let") args) =
 -- Special form: (lambda (argname0 argname1 ...) body)
 eval' (Cons (Atom "lambda") args) =
   evalLambda args
+-- Special form: (apply fn arglist), expands to (fn arg0 arg1 ... argN)
+eval' (Cons (Atom "apply") args) =
+  case args of
+    (Cons f (Cons arglistExpr Nil)) -> do
+      arglist <- eval arglistExpr
+      eval (Cons f arglist)
+    (Cons f Nil) ->
+      eval (Cons f Nil)
+    x ->
+      raise $ "Invalid arguments to (apply): " <> valToText x
+-- Special form: (cond (condition-1 body-1) ... (condition-n body-n))
+eval' (Cons (Atom "cond") conditions) =
+  evalCond conditions
 -- S-expressions evaluate to function calls
 eval' (Cons x args) = do
   f <- eval x
@@ -89,7 +102,7 @@ evalLambda (Cons argnames (Cons bodyExpr Nil)) = do
 extractArgsSpec :: (Monad m, MonadEval m) => Value -> m ArgsSpec
 extractArgsSpec Nil =
   pure $ ArgsSpec [] Nothing
-extractArgsSpec (Cons (Atom "&") (Atom n)) =
+extractArgsSpec (Cons (Atom "&") (Cons (Atom n) Nil)) =
   pure $ ArgsSpec [] (Just n)
 extractArgsSpec (Cons (Atom "&") x) =
   raise $ "Invalid argument specification in lambda form: " <> valToText x <> " (exactly one atom required after &)"
@@ -104,6 +117,17 @@ evalArgs Nil = pure []
 evalArgs (Cons x xs) = (:) <$> eval x <*> evalArgs xs
 evalArgs x =
   raise $ "Not a well-formed argument list: " <> valToText x
+
+evalCond :: (Monad m, MonadEval m) => Value -> m Value
+evalCond Nil = pure Nil
+evalCond (Cons (Cons condExpr (Cons bodyExpr Nil)) branches) = do
+  condVal <- eval condExpr
+  if isTruthy condVal then
+    eval bodyExpr
+  else
+    evalCond branches
+evalCond x =
+  raise $ "Invalid condition structure in (cond): " <> valToText x
 
 apply :: forall m. (Monad m, MonadEval m) => ArgsSpec -> Value -> Scope -> Value -> m Value
 apply (ArgsSpec positional remaining) args closure body =
