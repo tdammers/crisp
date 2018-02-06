@@ -26,7 +26,7 @@ import Data.Void
 import Language.Crisp.Value
 import Language.Crisp.Lexer
 
-parser :: [Lexeme] -> Either (ParseError Lexeme Void) Value
+parser :: [Lexeme] -> Either (ParseError Lexeme Void) (Value eff)
 parser = parse value "<input>"
 
 instance Stream [Lexeme] where
@@ -49,39 +49,45 @@ instance Stream [Lexeme] where
 
 type Parser = Parsec Void [Lexeme]
 
-value :: Parser Value
-value = dottedPairOrSimple
+value :: Parser (Value eff)
+value = quoted <|> dottedPairOrSimple
 
-dottedPairOrSimple :: Parser Value
+quoted :: Parser (Value eff)
+quoted = do
+  exactly QuotL
+  v <- value
+  pure (Cons (Atom "quote") (Cons v Nil))
+
+dottedPairOrSimple :: Parser (Value eff)
 dottedPairOrSimple = do
   lhs <- simpleValue
   dottedPair lhs <|> pure lhs
   where
-    dottedPair :: Value -> Parser Value
+    dottedPair :: Value eff -> Parser (Value eff)
     dottedPair lhs = do
       exactly DotL
       rhs <- value
       pure $ Cons lhs rhs
 
-simpleValue :: Parser Value
+simpleValue :: Parser (Value eff)
 simpleValue =
       list
   <|> scalar
 
-list :: Parser Value
+list :: Parser (Value eff)
 list = do
   exactly OpenParL
   listItems <- manyTill value $ exactly CloseParL
   pure $ listToValue listItems
 
-listToValue :: [Value] -> Value
+listToValue :: [Value eff] -> Value eff
 listToValue (x:xs) = Cons x $ listToValue xs
 listToValue _ = Nil
 
 exactly :: Lexeme -> Parser ()
 exactly x = satisfy (== x) *> pure ()
 
-scalar :: Parser Value
+scalar :: Parser (Value eff)
 scalar = do
   anyChar >>= \case
     StringLitL str -> pure $ String str

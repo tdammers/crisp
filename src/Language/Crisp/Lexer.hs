@@ -20,6 +20,7 @@ data Lexeme
   = OpenParL
   | CloseParL
   | DotL
+  | QuotL
   | StringLitL Text
   | IntLitL Integer
   | SymbolL Text
@@ -52,6 +53,7 @@ lexeme :: Parser Lexeme
 lexeme = openPar
        <|> closePar
        <|> dot
+       <|> quote
        <|> stringLit
        <|> intLit
        <|> symbol
@@ -65,6 +67,9 @@ closePar = char ')' *> pure CloseParL
 
 dot :: Parser Lexeme
 dot = char '.' *> pure DotL
+
+quote :: Parser Lexeme
+quote = char '\'' *> pure QuotL
 
 stringLit :: Parser Lexeme
 stringLit = fmap (StringLitL . Text.pack) $ char '"' *> many stringChar <* char '"'

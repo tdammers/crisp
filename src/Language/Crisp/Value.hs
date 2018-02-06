@@ -7,47 +7,53 @@ import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
 import Data.Map (Map)
 
-type Scope = Map Text Value
+type Scope eff = Map Text (Value eff)
 
 -- | Values we can represent
-data Value
+data Value eff
   = Nil -- ^ the empty list, doubling as the "null" value
-  | Cons Value Value -- ^ a cons cell (Cons car cdr)
+  | Cons (Value eff) (Value eff) -- ^ a cons cell (Cons car cdr)
   | Bool Bool -- ^ a boolean (true or false)
   | Int Integer -- ^ integer number
   | String Text -- ^ unicode string
   | Bytes ByteString -- ^ byte array
   | Atom Text -- ^ a symbol; typically used to dereference variables
-  | Lambda ArgsSpec Scope Value -- ^ lambda function: Lambda args closure body
-  deriving (Show, Read, Eq)
+  | Lambda ArgsSpec (Scope eff) (Value eff) -- ^ lambda function: Lambda args closure body
+  | NativeFunction Text (Scope eff -> Value eff -> Value eff) -- ^ pure builtin function
+  | Effect (Effect eff)
 
-consMap :: (Value -> Value) -> Value -> Value
+data Effect eff
+  = Pure (Value eff)
+  | Atomic eff
+  | Bind (Effect eff) (Value eff)
+
+consMap :: (Value eff -> Value eff) -> Value eff -> Value eff
 consMap f (Cons a b) = Cons (f a) (consMap f b)
 consMap f x = f x
 
-consFor :: Value -> (Value -> Value) -> Value
+consFor :: Value eff -> (Value eff -> Value eff) -> Value eff
 consFor = flip consMap
 
-consMapM :: Monad m => (Value -> m Value) -> Value -> m Value
+consMapM :: Monad m => (Value eff -> m (Value eff)) -> Value eff -> m (Value eff)
 consMapM f (Cons a b) = Cons <$> f a <*> consMapM f b
 consMapM f x = f x
 
-consForM :: Monad m => Value -> (Value -> m Value) -> m Value
+consForM :: Monad m => Value eff -> (Value eff -> m (Value eff)) -> m (Value eff)
 consForM = flip consMapM
 
-isTruthy :: Value -> Bool
+isTruthy :: Value eff -> Bool
 isTruthy Nil = False
 isTruthy (Bool False) = False
 isTruthy _ = True
 
-isFalsy :: Value -> Bool
+isFalsy :: Value eff -> Bool
 isFalsy = not . isTruthy
 
-isNil :: Value -> Bool
+isNil :: Value eff -> Bool
 isNil Nil = True
 isNil _ = False
 
-isCons :: Value -> Bool
+isCons :: Value eff -> Bool
 isCons (Cons _ _) = True
 isCons _ = False
 
@@ -58,7 +64,7 @@ data ArgsSpec
       }
       deriving (Show, Read, Eq)
 
-valToString :: Value -> String
+valToString :: Value eff -> String
 valToString Nil = "()"
 valToString (Cons a Nil) = "(" ++ valToString a ++ printConsTail Nil
 valToString (Cons a (Cons b c)) = "(" ++ valToString a ++ printConsTail (Cons b c)
@@ -70,11 +76,12 @@ valToString (Bytes b) = show b
 valToString (Int i) = show i
 valToString (Atom a) = Text.unpack a
 valToString (Lambda args closure body) = "<<function>>"
+valToString (Effect _) = "<<effect>>"
 
-valToText :: Value -> Text
+valToText :: Value eff -> Text
 valToText = Text.pack . valToString
 
-printConsTail :: Value -> String
+printConsTail :: Value eff -> String
 printConsTail Nil = ")"
 printConsTail (Cons a b) = " " ++ valToString a ++ printConsTail b
 printConsTail x = " . " ++ valToString x ++ ")"

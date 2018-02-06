@@ -6,6 +6,14 @@ module Language.Crisp
 , eval
 , evaluate
 , evaluate_
+, evaluateM
+, evaluateM_
+, executeM
+, executeM_
+, MonadExec (..)
+, MonadEval (..)
+, execEffect
+, execValue
 )
 where
 
