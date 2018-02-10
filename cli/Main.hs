@@ -16,6 +16,7 @@ import Data.Bool
 import Data.Text (Text)
 import qualified Data.Text as Text
 import qualified Data.Text.IO as Text
+import Data.Monoid
 
 data LexerError = LexerError (P.ParseError Char Void)
   deriving (Show)
@@ -30,10 +31,67 @@ data RuntimeError = RuntimeError Text
 instance Exception RuntimeError where
 
 data Eff
-  = NOP
-  | Print Text
-  | Read
-  | EffectError Text
+  = NoE
+  | PrintE Text
+  | ReadE
+  | ErrorE Text
+  deriving (Show, Eq)
+
+data Builtin
+  = IdentityF
+  | PrintF
+  | BindF
+  deriving (Show, Eq)
+
+data Native
+  = NativeEff Eff
+  | NativeFunc Builtin
+  | NativeBinding Native (Value Native)
+  deriving (Show, Eq)
+
+instance MonadRaise IO where
+  raise msg = throw $ RuntimeError msg
+
+instance MonadEval Native IO where
+  lookupBuiltin = \case
+    "identity" -> pure . Just . Native $ NativeFunc IdentityF
+    "print" -> pure . Just . Native $ NativeFunc PrintF
+    ">>=" -> pure . Just . Native $ NativeFunc BindF
+    "read" -> pure . Just . Native $ NativeEff ReadE
+    x -> pure Nothing
+
+  evalNativeFn scope nf args = case nf of
+    NativeFunc IdentityF ->
+      case args of
+        Cons car _ -> pure car
+        _ -> pure Nil
+
+    NativeFunc PrintF -> do
+      let str = Text.unlines . map valToText . consToList $ args
+      pure $ Native (NativeEff (PrintE str))
+
+    NativeFunc BindF -> do
+      case args of
+        Cons (Native a) (Cons rhs Nil) ->
+          pure . Native $ NativeBinding a rhs
+        x ->
+          raise $ "Invalid arguments to >>=: " <> Text.pack (show x)
+
+instance MonadExec Native IO where
+  execNative scope = \case
+    NativeFunc f ->
+      raise $ Text.pack (show f) <> " is not an effect, but a function"
+    NativeEff e ->
+      execEff e
+    NativeBinding e f -> do
+      v <- execNative scope e
+      exec scope =<< eval scope (Cons f (Cons v Nil))
+
+execEff :: Eff -> IO (Value Native)
+execEff NoE = pure Nil
+execEff (PrintE str) = Text.putStrLn str >> pure Nil
+execEff ReadE = String <$> Text.getLine
+execEff (ErrorE err) = raise err
 
 unlessM :: IO Bool -> IO () -> IO ()
 unlessM p a =
@@ -45,6 +103,7 @@ data MainOpts =
     , interactive :: Bool
     , dumpLex :: Bool
     , dumpAST :: Bool
+    , dumpShow :: Bool
     }
     deriving (Show)
 
@@ -55,6 +114,7 @@ defOpts =
     , interactive = False
     , dumpLex = False
     , dumpAST = False
+    , dumpShow = False
     }
 
 parseOpts :: [String] -> Either String MainOpts
@@ -70,6 +130,7 @@ parseOpts args =
         "i" -> go opts { interactive = True } xs
         "-dump-lex" -> go opts { dumpLex = True } xs
         "-dump-ast" -> go opts { dumpAST = True } xs
+        "-dump-show" -> go opts { dumpShow = True } xs
         _ -> (opts, args)
     go opts args@(filename:xs) =
       go opts { inputFiles = inputFiles opts ++ [filename] } xs
@@ -110,35 +171,19 @@ runStdin :: MainOpts -> IO ()
 runStdin opts = do
   getContents >>= runExpr opts
 
-effectsContext :: Scope Eff
-effectsContext =
-  [ ("getln", Effect (Atomic Read))
-  , ("print", NativeFunction "print" $ const print)
-  ]
-  where
-    print :: Value Eff -> Value Eff
-    print = \case
-      Nil ->
-        Effect (Pure Nil)
-      Cons car cdr ->
-        let current = Atomic . Print . valToText $ car
-            rest = print cdr
-        in Effect $ Bind current rest
-      x ->
-        Effect (Atomic $ EffectError "Invalid arguments to 'print'")
-
-instance MonadExec Eff IO where
-  execEff Print v = putStrLn (valToString v) >> pure Nil
-  execEff Read _ = String . Text.pack <$> getLine
-
 runExpr :: MainOpts -> String -> IO ()
 runExpr opts input =
   when (not . null $ input) $ flip catches handles $ do
     lexemes <- either (throw . LexerError) return $ lexer input
     when (dumpLex opts) (print lexemes)
     parsed <- either (throw . ParserError) return $ parser lexemes
-    when (dumpAST opts) (putStrLn $ valToString parsed)
-    result :: Value Eff <- either (throw . RuntimeError) return =<< executeM_ parsed effectsContext
+    when (dumpAST opts) $
+      if (dumpShow opts) then
+        (print parsed)
+      else
+        (putStrLn $ valToString parsed)
+    result :: Value Native <- exec mempty =<< eval mempty parsed
+    when (dumpShow opts) (print result)
     putStrLn $ valToString result
     where
       handles =

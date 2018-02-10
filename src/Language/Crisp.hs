@@ -3,17 +3,11 @@ module Language.Crisp
 , lexer
 , Lexeme
 , parser
-, eval
-, evaluate
-, evaluate_
-, evaluateM
-, evaluateM_
-, executeM
-, executeM_
-, MonadExec (..)
 , MonadEval (..)
-, execEffect
-, execValue
+, MonadRaise (..)
+, MonadExec (..)
+, eval
+, exec
 )
 where
 
