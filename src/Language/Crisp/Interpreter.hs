@@ -71,14 +71,35 @@ evalCons scope f args = case f of
     argVals <- consMapM (eval scope) args
     let scope' = mapArgs argsSpec argVals <> closure
     eval scope' body
+  Atom "let" ->
+    evalLet scope args
+  Atom "lambda" ->
+    evalLambda scope args
   Atom text -> do
-    -- TODO: special forms
     f' <- eval scope f
     case f' of
       Atom text -> raise $ "Cannot resolve atom " <> text <> " to anything applicable"
       _ -> evalCons scope f' args
   x ->
     raise $ "Cannot apply " <> valToText x <> ", because it is neither a function nor a macro"
+
+evalLet :: MonadEval n m => Scope n -> Value n -> m (Value n)
+evalLet scope = \case
+  [[Atom varname, expr], body] -> do
+    exprVal <- eval scope expr
+    let scope' = Map.insert varname exprVal scope
+    eval scope' body
+  x -> raise $ "Invalid arguments to `let`: " <> valToText x
+
+evalLambda :: MonadEval n m => Scope n -> Value n -> m (Value n)
+evalLambda scope = \case
+  [argnameAtoms, body] -> do
+    argnames <- forM (consToList argnameAtoms) $ \case
+      Atom name -> return name
+      x -> raise $ "Invalid argument name: " <> valToText x
+    -- TODO: (a b & args) syntax
+    pure $ Lambda (ArgsSpec argnames Nothing) scope body
+  x -> raise $ "Invalid arguments to `lambda`: " <> valToText x
 
 mapArgs :: ArgsSpec -> Value n -> Scope n
 mapArgs (ArgsSpec [] Nothing) args =

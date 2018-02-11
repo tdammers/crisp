@@ -1,3 +1,4 @@
+{-#LANGUAGE TypeFamilies #-}
 module Language.Crisp.Value
 where
 
@@ -6,6 +7,8 @@ import Data.Text as Text
 import qualified Data.ByteString as BS
 import Data.ByteString (ByteString)
 import Data.Map (Map)
+import Data.List
+import GHC.Exts (IsList (..))
 
 type Scope n = Map Text (Value n)
 
@@ -21,6 +24,12 @@ data Value n
   | Lambda ArgsSpec (Scope n) (Value n) -- ^ lambda function: Lambda args closure body
   | Native n -- ^ a native value: this could be a function, an effect, etc.
   deriving (Show, Eq)
+
+instance IsList (Value n) where
+  type Item (Value n) = Value n
+
+  fromList = consFromList
+  toList = consToList
 
 consMap :: (Value n -> Value n) -> Value n -> Value n
 consMap f (Cons a b) = Cons (f a) (consMap f b)
@@ -40,6 +49,10 @@ consToList :: Value n -> [Value n]
 consToList Nil = []
 consToList (Cons a b) = a:consToList b
 consToList x = error $ "Cannot make list from " ++ valToString x
+
+consFromList :: [Value n] -> Value n
+consFromList (x:xs) = Cons x $ consFromList xs
+consFromList _ = Nil
 
 isTruthy :: Value n -> Bool
 isTruthy Nil = False
